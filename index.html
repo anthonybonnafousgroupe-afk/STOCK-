@@ -889,69 +889,99 @@ function installPWA() {
 
 document.addEventListener('keydown', e=>{if(e.key==='Escape'){closeModalDirect();closeScanner();}});
 
-// ─── BARCODE SCANNER ─────────────────────────────────────────────────────────
+// ─── BARCODE SCANNER (ZXing - compatible Safari iPhone) ──────────────────────
 let scannerStream = null;
-let scannerInterval = null;
-let scanCanvas = null;
-let scanCtx = null;
+let scannerAnimFrame = null;
+let zxingReader = null;
 
 async function openScanner() {
   const modal = document.getElementById('scanner-modal');
   const video = document.getElementById('scanner-video');
   document.getElementById('scanner-result').textContent = '';
 
-  // Check BarcodeDetector API support
-  if (!('BarcodeDetector' in window)) {
-    // Fallback: just let user type manually
-    showToast('Scanner non supporté — saisissez la référence manuellement');
-    return;
+  // Load ZXing library dynamically
+  if (!window.ZXing) {
+    document.getElementById('scanner-result').textContent = '⏳ Chargement...';
+    await loadScript('https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js');
   }
 
   try {
     scannerStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
     });
     video.srcObject = scannerStream;
+    await video.play();
     modal.classList.add('open');
+    document.getElementById('scanner-result').textContent = '';
 
-    const detector = new BarcodeDetector({ formats: [
-      'ean_13','ean_8','code_128','code_39','code_93','qr_code','upc_a','upc_e','itf','codabar'
-    ]});
+    const hints = new Map();
+    const formats = [
+      ZXing.BarcodeFormat.EAN_13, ZXing.BarcodeFormat.EAN_8,
+      ZXing.BarcodeFormat.CODE_128, ZXing.BarcodeFormat.CODE_39,
+      ZXing.BarcodeFormat.QR_CODE, ZXing.BarcodeFormat.UPC_A,
+      ZXing.BarcodeFormat.UPC_E, ZXing.BarcodeFormat.ITF,
+      ZXing.BarcodeFormat.DATA_MATRIX
+    ];
+    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
+    hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
 
-    scannerInterval = setInterval(async () => {
+    const reader = new ZXing.MultiFormatReader();
+    reader.setHints(hints);
+    zxingReader = reader;
+
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+
+    function scanFrame() {
+      if (!scannerStream) return;
       if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const luminanceSource = new ZXing.RGBLuminanceSource(imageData.data, canvas.width, canvas.height);
+        const binaryBitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(luminanceSource));
         try {
-          const barcodes = await detector.detect(video);
-          if (barcodes.length > 0) {
-            const code = barcodes[0].rawValue;
+          const result = reader.decode(binaryBitmap);
+          if (result) {
+            const code = result.getText();
             document.getElementById('scanner-result').textContent = '✓ ' + code;
-            // Vibrate on success
             if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
             setTimeout(() => {
               document.getElementById('f-ref').value = code;
               closeScanner();
-              // Switch to add tab and focus next field
               switchTabById('add');
-              document.getElementById('f-desc').focus();
               showToast('Code scanné : ' + code);
             }, 600);
+            return;
           }
-        } catch(e) {}
+        } catch(e) { /* pas de code détecté */ }
       }
-    }, 200);
+      scannerAnimFrame = requestAnimationFrame(scanFrame);
+    }
+    scannerAnimFrame = requestAnimationFrame(scanFrame);
 
   } catch(e) {
-    showToast('Impossible d\'accéder à la caméra');
+    showToast("Impossible d'acceder a la camera - verifiez les permissions");
     modal.classList.remove('open');
   }
+}
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src; s.onload = resolve; s.onerror = reject;
+    document.head.appendChild(s);
+  });
 }
 
 function closeScanner() {
   const modal = document.getElementById('scanner-modal');
   modal.classList.remove('open');
-  if (scannerInterval) { clearInterval(scannerInterval); scannerInterval = null; }
+  if (scannerAnimFrame) { cancelAnimationFrame(scannerAnimFrame); scannerAnimFrame = null; }
   if (scannerStream) { scannerStream.getTracks().forEach(t => t.stop()); scannerStream = null; }
   document.getElementById('scanner-result').textContent = '';
+  zxingReader = null;
 }
 
 </script>

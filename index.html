@@ -347,11 +347,13 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
       <div class="scanner-corner bl"></div>
       <div class="scanner-corner br"></div>
     </div>
+    <div id="quagga-container"></div>
   </div>
   <div class="scanner-label">Pointez la caméra vers un code-barres</div>
   <div class="scanner-result" id="scanner-result"></div>
-  <button class="btn-close-scanner" onclick="closeScanner()">✕ Fermer</button>
+  <button class="btn-close-scanner" id="btn-close-scanner">✕ Fermer</button>
 </div>
+<input type="file" id="barcode-file-input" accept="image/*" capture="environment" style="display:none" />
 
 <div class="toast" id="toast"></div>
 
@@ -889,8 +891,168 @@ function installPWA() {
 
 document.addEventListener('keydown', e=>{if(e.key==='Escape'){closeModalDirect();closeScanner();}});
 
+// ─── BARCODE SCANNER ─────────────────────────────────────────────────────────
+var quaggaRunning = false;
+var scannerActive = false;
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    if (document.querySelector('script[src="' + src + '"]')) { resolve(); return; }
+    const s = document.createElement('script');
+    s.src = src; s.onload = resolve; s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+async function openScanner() {
+  const modal = document.getElementById('scanner-modal');
+  document.getElementById('scanner-result').textContent = '';
+  modal.classList.add('open');
+  scannerActive = true;
+
+  const resultEl = document.getElementById('scanner-result');
+  resultEl.textContent = '⏳ Chargement du scanner...';
+
+  try {
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js');
+  } catch(e) {
+    resultEl.textContent = '';
+    showToast("Erreur chargement librairie");
+    modal.classList.remove('open');
+    return;
+  }
+
+  resultEl.textContent = '';
+
+  const container = document.getElementById('quagga-container');
+  container.innerHTML = '';
+
+  Quagga.init({
+    inputStream: {
+      type: 'LiveStream',
+      target: container,
+      constraints: {
+        facingMode: 'environment',
+        width: { min: 640, ideal: 1280, max: 1920 },
+        height: { min: 480, ideal: 720, max: 1080 }
+      },
+      area: {
+        top: '20%', right: '10%', left: '10%', bottom: '20%'
+      }
+    },
+    locator: {
+      patchSize: 'large',
+      halfSample: false
+    },
+    numOfWorkers: 0,
+    frequency: 5,
+    decoder: {
+      readers: [
+        { format: 'ean_reader', config: {} },
+        { format: 'ean_8_reader', config: {} },
+        { format: 'code_128_reader', config: {} },
+        { format: 'code_39_reader', config: {} },
+        { format: 'upc_reader', config: {} },
+        { format: 'upc_e_reader', config: {} }
+      ],
+      multiple: false
+    },
+    locate: true,
+    debug: false
+  }, function(err) {
+    if (err) {
+      resultEl.textContent = '';
+      // Fallback to file input if camera fails
+      showToast("Camera indisponible - choisissez une photo");
+      modal.classList.remove('open');
+      scannerActive = false;
+      document.getElementById('barcode-file-input').click();
+      return;
+    }
+    Quagga.start();
+    quaggaRunning = true;
+  });
+
+  let detectionCount = {};
+
+  Quagga.onDetected(function(result) {
+    if (!scannerActive) return;
+    const code = result.codeResult.code;
+    if (!code || code.length < 3) return;
+
+    // Require same code detected 2 times to avoid false positives
+    detectionCount[code] = (detectionCount[code] || 0) + 1;
+    if (detectionCount[code] < 2) {
+      resultEl.textContent = '🔍 ' + code + '...';
+      return;
+    }
+
+    resultEl.textContent = '✓ ' + code;
+    if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+    scannerActive = false;
+
+    setTimeout(() => {
+      document.getElementById('f-ref').value = code;
+      closeScanner();
+      switchTabById('add');
+      document.getElementById('f-desc').focus();
+      showToast('Code scanné : ' + code);
+    }, 500);
+  });
+}
+
+// Fallback: scan from photo
+document.addEventListener('DOMContentLoaded', function() {
+  var fileInput = document.getElementById('barcode-file-input');
+  var closeBtn = document.getElementById('btn-close-scanner');
+  if (closeBtn) {
+    closeBtn.addEventListener('click', closeScanner);
+    closeBtn.addEventListener('touchend', function(e) { e.preventDefault(); closeScanner(); });
+  }
+  if (fileInput) {
+    fileInput.addEventListener('change', async function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js');
+      const url = URL.createObjectURL(file);
+      Quagga.decodeSingle({
+        decoder: {
+          readers: ['ean_reader','ean_8_reader','code_128_reader','code_39_reader','upc_reader']
+        },
+        locate: true,
+        src: url
+      }, function(result) {
+        URL.revokeObjectURL(url);
+        if (result && result.codeResult) {
+          const code = result.codeResult.code;
+          document.getElementById('f-ref').value = code;
+          switchTabById('add');
+          showToast('Code lu : ' + code);
+        } else {
+          showToast('Code non détecté - ressayez');
+        }
+        fileInput.value = '';
+      });
+    });
+  }
+});
+
+function closeScanner() {
+  scannerActive = false;
+  const modal = document.getElementById('scanner-modal');
+  modal.classList.remove('open');
+  if (quaggaRunning) {
+    try { Quagga.stop(); } catch(e) {}
+    quaggaRunning = false;
+  }
+  const container = document.getElementById('quagga-container');
+  if (container) container.innerHTML = '';
+  document.getElementById('scanner-result').textContent = '';
+}
+
+document.addEventListener('keydown', e=>{if(e.key==='Escape'){closeModalDirect();closeScanner();}});
+
 // ─── BARCODE SCANNER (QuaggaJS) ──────────────────────────────────────────────
-let quaggaRunning = false;
 
 async function openScanner() {
   const modal = document.getElementById('scanner-modal');

@@ -222,11 +222,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
   <p>Stock en temps réel sur tous vos appareils,<br>avec catégories et sous-catégories.</p>
   <div class="setup-card">
     <h3>🔑 Connexion Firebase</h3>
-    <div class="sf"><label>Code d'équipe</label><input id="team-code" type="text" placeholder="mon-entreprise-2024" /></div>
-    <div class="sf"><label>URL Firebase Realtime Database</label><input id="firebase-url" type="text" placeholder="https://xxx-default-rtdb.firebaseio.com" /></div>
-    <button class="btn-setup" id="btn-connect" type="button">Se connecter →</button>
+    <div class="sf"><label>Code d'équipe</label><input id="team-code" type="text" placeholder="mon-entreprise-2024" autocomplete="off" /></div>
+    <div class="sf"><label>URL Firebase Realtime Database</label><input id="firebase-url" type="url" placeholder="https://xxx-default-rtdb.firebaseio.com" autocomplete="off" /></div>
+    <a href="javascript:void(0)" class="btn-setup" id="btn-connect" style="display:block;text-align:center;text-decoration:none;line-height:44px;">Se connecter →</a>
     <div class="setup-divider">— ou —</div>
-    <button class="btn-setup" id="btn-demo" type="button" style="background:#3b6d11">🧪 Mode démo (local)</button>
+    <a href="javascript:void(0)" class="btn-setup" id="btn-demo" style="display:block;text-align:center;text-decoration:none;line-height:44px;background:#3b6d11;">🧪 Mode démo (local)</a>
     <p class="setup-note">Firebase gratuit jusqu'à 1 Go. <a href="https://console.firebase.google.com" target="_blank">Créer une base →</a><br>Règles : mettez <code>true</code> pour lecture/écriture.</p>
   </div>
 </div>
@@ -369,24 +369,32 @@ let activeFilter = 'all';
 const EMOJIS = ['📦','🔧','⚡','🖥','🪑','🛒','📋','🧪','🏭','🚗','🛠','💊','🍎','👕','🔩','📱','💡','🏗','🧴','🎒'];
 
 // ─── SETUP ─────────────────────────────────────────────────────────────────
+// Fonctions globales appelées directement - max compatibilité
+function btnConnect() { connectFirebase(); }
+function btnDemo() { demoMode(); }
+
 window.addEventListener('load', () => {
   buildEmojiGrid();
 
-  // Attacher les boutons AVANT de vérifier la config sauvegardée
-  document.getElementById('btn-connect').addEventListener('click', function(e) {
-    e.preventDefault();
-    connectFirebase();
-  });
-  document.getElementById('btn-demo').addEventListener('click', function(e) {
-    e.preventDefault();
-    demoMode();
-  });
+  // Multiples méthodes pour attacher les boutons (max compatibilité Safari/iPhone)
+  var btnC = document.getElementById('btn-connect');
+  var btnD = document.getElementById('btn-demo');
+  if (btnC) {
+    btnC.onclick = function() { connectFirebase(); return false; };
+    btnC.addEventListener('touchend', function(e) { e.preventDefault(); connectFirebase(); }, {passive:false});
+    btnC.addEventListener('click', function(e) { e.preventDefault(); connectFirebase(); });
+  }
+  if (btnD) {
+    btnD.onclick = function() { demoMode(); return false; };
+    btnD.addEventListener('touchend', function(e) { e.preventDefault(); demoMode(); }, {passive:false});
+    btnD.addEventListener('click', function(e) { e.preventDefault(); demoMode(); });
+  }
 
-  // Vérifier config sauvegardée APRÈS avoir attaché les événements
-  const saved = localStorage.getItem('stock_config');
+  // Vérifier config sauvegardée
+  var saved = localStorage.getItem('stock_config');
   if (saved) {
     try {
-      const c = JSON.parse(saved);
+      var c = JSON.parse(saved);
       firebaseUrl = c.url; teamCode = c.team; isDemo = c.demo||false;
       startApp();
     } catch(e) {
@@ -933,7 +941,7 @@ async function openScanner() {
     }, 200);
 
   } catch(e) {
-    showToast('Impossible d'accéder à la caméra');
+    showToast('Impossible d\'accéder à la caméra');
     modal.classList.remove('open');
   }
 }

@@ -180,29 +180,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .btn-danger { width: 100%; height: 44px; border-radius: 12px; border: 1px solid #e24b4a; background: none; color: #a32d2d; font-size: 14px; cursor: pointer; font-family: inherit; }
 
 
+
 /* SCANNER */
-.scan-btn { position: absolute; right: 0; top: 0; height: 44px; width: 44px; border: none; background: none; font-size: 22px; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--muted); }
-.scan-btn:active { opacity: .6; }
+.scan-btn { position: absolute; right: 0; top: 0; height: 44px; width: 44px; border: none; background: none; font-size: 22px; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--muted); touch-action: manipulation; }
 .field-with-scan { position: relative; }
 .field-with-scan input { padding-right: 44px; }
-
-.scanner-modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.85); z-index: 300; flex-direction: column; align-items: center; justify-content: center; }
-.scanner-modal-bg.open { display: flex; }
-.scanner-box { position: relative; width: min(340px, 90vw); }
-.scanner-box video { width: 100%; border-radius: 16px; display: block; }
-.scanner-overlay { position: absolute; inset: 0; border-radius: 16px; border: 2px solid rgba(255,255,255,.3); pointer-events: none; }
-.scanner-line { position: absolute; left: 10%; right: 10%; height: 2px; background: #5dca85; box-shadow: 0 0 8px #5dca85; animation: scan-line 2s ease-in-out infinite; top: 20%; }
-@keyframes scan-line { 0%,100% { top: 20%; } 50% { top: 75%; } }
-.scanner-frame { position: absolute; inset: 15%; border: 2px solid #fff; border-radius: 4px; }
-.scanner-corner { position: absolute; width: 20px; height: 20px; }
-.scanner-corner.tl { top: 14%; left: 14%; border-top: 3px solid #5dca85; border-left: 3px solid #5dca85; }
-.scanner-corner.tr { top: 14%; right: 14%; border-top: 3px solid #5dca85; border-right: 3px solid #5dca85; }
-.scanner-corner.bl { bottom: 14%; left: 14%; border-bottom: 3px solid #5dca85; border-left: 3px solid #5dca85; }
-.scanner-corner.br { bottom: 14%; right: 14%; border-bottom: 3px solid #5dca85; border-right: 3px solid #5dca85; }
-.scanner-label { color: #fff; font-size: 14px; margin-top: 1.25rem; text-align: center; opacity: .8; }
-.scanner-result { color: #5dca85; font-size: 16px; font-weight: 500; margin-top: .5rem; text-align: center; min-height: 24px; }
-.btn-close-scanner { margin-top: 1.25rem; height: 44px; padding: 0 28px; border-radius: 22px; border: 1px solid rgba(255,255,255,.3); background: rgba(255,255,255,.1); color: #fff; font-size: 15px; cursor: pointer; font-family: inherit; }
-.btn-close-scanner:active { background: rgba(255,255,255,.2); }
 
 /* TOAST */
 .toast { position: fixed; bottom: calc(var(--safe-bottom) + 80px); left: 50%; transform: translateX(-50%) translateY(20px); background: #1a1a18; color: #fff; padding: 10px 20px; border-radius: 20px; font-size: 13px; opacity: 0; transition: all .3s; z-index: 300; white-space: nowrap; pointer-events: none; }
@@ -266,9 +248,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
         <label>Référence *</label>
         <div class="field-with-scan">
           <input id="f-ref" type="text" placeholder="ART-001 ou scanner 📷" />
-          <button class="scan-btn" onclick="openScanner()" title="Scanner un code-barres">📷</button>
+          <button class="scan-btn" id="btn-scan" title="Scanner un code-barres">📷</button>
         </div>
       </div>
+      <input type="file" id="barcode-input" accept="image/*" capture="environment" style="display:none" />
       <div class="field"><label>Désignation</label><input id="f-desc" type="text" placeholder="Nom du produit" /></div>
       <div class="field"><label>Lieu de stockage *</label><input id="f-lieu" type="text" placeholder="A1-E3 / Entrepôt B" /></div>
       <div class="field"><label>Quantité *</label><input id="f-stock" type="number" min="0" inputmode="numeric" placeholder="0" /></div>
@@ -335,25 +318,6 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
   </div>
 </div>
 
-
-<!-- SCANNER MODAL -->
-<div class="scanner-modal-bg" id="scanner-modal">
-  <div class="scanner-box">
-    <video id="scanner-video" autoplay playsinline muted></video>
-    <div class="scanner-overlay">
-      <div class="scanner-line"></div>
-      <div class="scanner-corner tl"></div>
-      <div class="scanner-corner tr"></div>
-      <div class="scanner-corner bl"></div>
-      <div class="scanner-corner br"></div>
-    </div>
-    <div id="quagga-container"></div>
-  </div>
-  <div class="scanner-label">Pointez la caméra vers un code-barres</div>
-  <div class="scanner-result" id="scanner-result"></div>
-  <button class="btn-close-scanner" id="btn-close-scanner">✕ Fermer</button>
-</div>
-<input type="file" id="barcode-file-input" accept="image/*" capture="environment" style="display:none" />
 
 <div class="toast" id="toast"></div>
 
@@ -889,6 +853,212 @@ function installPWA() {
   else showToast('Sur mobile : Menu → Ajouter à l\'écran d\'accueil');
 }
 
+
+// ─── BARCODE SCANNER ─────────────────────────────────────────────────────────
+// Utilise l'appareil photo natif iOS/Android + librairie de décodage
+document.addEventListener('DOMContentLoaded', function() {
+  var scanBtn = document.getElementById('btn-scan');
+  var barcodeInput = document.getElementById('barcode-input');
+
+  if (scanBtn) {
+    scanBtn.addEventListener('click', function(e) { e.preventDefault(); barcodeInput.click(); });
+    scanBtn.addEventListener('touchend', function(e) { e.preventDefault(); barcodeInput.click(); });
+  }
+
+  if (barcodeInput) {
+    barcodeInput.addEventListener('change', async function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      showToast('🔍 Lecture du code...');
+
+      // Load ZXing
+      if (!window.ZXingBrowser) {
+        try {
+          await loadScanScript('https://unpkg.com/@zxing/browser@0.1.4/umd/index.min.js');
+        } catch(err) {
+          // fallback to older zxing
+          try {
+            await loadScanScript('https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js');
+          } catch(e2) {
+            showToast('Erreur chargement scanner');
+            barcodeInput.value = '';
+            return;
+          }
+        }
+      }
+
+      try {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload = async function() {
+          try {
+            // Try ZXingBrowser first
+            if (window.ZXingBrowser) {
+              const reader = new ZXingBrowser.BrowserMultiFormatReader();
+              const result = await reader.decodeFromImageUrl(url);
+              URL.revokeObjectURL(url);
+              if (result) {
+                document.getElementById('f-ref').value = result.getText();
+                switchTabById('add');
+                showToast('✓ Code scanné : ' + result.getText());
+              }
+            } else if (window.ZXing) {
+              // Fallback ZXing library
+              const hints = new Map();
+              hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+              const reader = new ZXing.MultiFormatReader();
+              reader.setHints(hints);
+              const canvas = document.createElement('canvas');
+              canvas.width = img.width;
+              canvas.height = img.height;
+              const ctx = canvas.getContext('2d');
+              ctx.drawImage(img, 0, 0);
+              const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+              const src = new ZXing.RGBLuminanceSource(imageData.data, canvas.width, canvas.height);
+              const bmp = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(src));
+              const result = reader.decode(bmp);
+              URL.revokeObjectURL(url);
+              if (result) {
+                document.getElementById('f-ref').value = result.getText();
+                switchTabById('add');
+                showToast('✓ Code scanné : ' + result.getText());
+              }
+            }
+          } catch(decodeErr) {
+            URL.revokeObjectURL(url);
+            showToast('Code non détecté - réessayez en vous rapprochant');
+          }
+          barcodeInput.value = '';
+        };
+        img.onerror = function() {
+          URL.revokeObjectURL(url);
+          showToast('Erreur lecture image');
+          barcodeInput.value = '';
+        };
+        img.src = url;
+      } catch(err) {
+        showToast('Erreur : ' + err.message);
+        barcodeInput.value = '';
+      }
+    });
+  }
+});
+
+function loadScanScript(src) {
+  return new Promise((resolve, reject) => {
+    if (document.querySelector('script[src="' + src + '"]')) { resolve(); return; }
+    var s = document.createElement('script');
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+document.addEventListener('keydown', e=>{if(e.key==='Escape'){closeModalDirect();closeScanner();}});
+
+
+// ─── BARCODE SCANNER ─────────────────────────────────────────────────────────
+// Utilise l'appareil photo natif iOS/Android + librairie de décodage
+document.addEventListener('DOMContentLoaded', function() {
+  var scanBtn = document.getElementById('btn-scan');
+  var barcodeInput = document.getElementById('barcode-input');
+
+  if (scanBtn) {
+    scanBtn.addEventListener('click', function(e) { e.preventDefault(); barcodeInput.click(); });
+    scanBtn.addEventListener('touchend', function(e) { e.preventDefault(); barcodeInput.click(); });
+  }
+
+  if (barcodeInput) {
+    barcodeInput.addEventListener('change', async function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      showToast('🔍 Lecture du code...');
+
+      // Load ZXing
+      if (!window.ZXingBrowser) {
+        try {
+          await loadScanScript('https://unpkg.com/@zxing/browser@0.1.4/umd/index.min.js');
+        } catch(err) {
+          // fallback to older zxing
+          try {
+            await loadScanScript('https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js');
+          } catch(e2) {
+            showToast('Erreur chargement scanner');
+            barcodeInput.value = '';
+            return;
+          }
+        }
+      }
+
+      try {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload = async function() {
+          try {
+            // Try ZXingBrowser first
+            if (window.ZXingBrowser) {
+              const reader = new ZXingBrowser.BrowserMultiFormatReader();
+              const result = await reader.decodeFromImageUrl(url);
+              URL.revokeObjectURL(url);
+              if (result) {
+                document.getElementById('f-ref').value = result.getText();
+                switchTabById('add');
+                showToast('✓ Code scanné : ' + result.getText());
+              }
+            } else if (window.ZXing) {
+              // Fallback ZXing library
+              const hints = new Map();
+              hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+              const reader = new ZXing.MultiFormatReader();
+              reader.setHints(hints);
+              const canvas = document.createElement('canvas');
+              canvas.width = img.width;
+              canvas.height = img.height;
+              const ctx = canvas.getContext('2d');
+              ctx.drawImage(img, 0, 0);
+              const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+              const src = new ZXing.RGBLuminanceSource(imageData.data, canvas.width, canvas.height);
+              const bmp = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(src));
+              const result = reader.decode(bmp);
+              URL.revokeObjectURL(url);
+              if (result) {
+                document.getElementById('f-ref').value = result.getText();
+                switchTabById('add');
+                showToast('✓ Code scanné : ' + result.getText());
+              }
+            }
+          } catch(decodeErr) {
+            URL.revokeObjectURL(url);
+            showToast('Code non détecté - réessayez en vous rapprochant');
+          }
+          barcodeInput.value = '';
+        };
+        img.onerror = function() {
+          URL.revokeObjectURL(url);
+          showToast('Erreur lecture image');
+          barcodeInput.value = '';
+        };
+        img.src = url;
+      } catch(err) {
+        showToast('Erreur : ' + err.message);
+        barcodeInput.value = '';
+      }
+    });
+  }
+});
+
+function loadScanScript(src) {
+  return new Promise((resolve, reject) => {
+    if (document.querySelector('script[src="' + src + '"]')) { resolve(); return; }
+    var s = document.createElement('script');
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
 document.addEventListener('keydown', e=>{if(e.key==='Escape'){closeModalDirect();closeScanner();}});
 
 // ─── BARCODE SCANNER ─────────────────────────────────────────────────────────
@@ -1050,6 +1220,108 @@ function closeScanner() {
   document.getElementById('scanner-result').textContent = '';
 }
 
+
+// ─── BARCODE SCANNER ─────────────────────────────────────────────────────────
+// Utilise l'appareil photo natif iOS/Android + librairie de décodage
+document.addEventListener('DOMContentLoaded', function() {
+  var scanBtn = document.getElementById('btn-scan');
+  var barcodeInput = document.getElementById('barcode-input');
+
+  if (scanBtn) {
+    scanBtn.addEventListener('click', function(e) { e.preventDefault(); barcodeInput.click(); });
+    scanBtn.addEventListener('touchend', function(e) { e.preventDefault(); barcodeInput.click(); });
+  }
+
+  if (barcodeInput) {
+    barcodeInput.addEventListener('change', async function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      showToast('🔍 Lecture du code...');
+
+      // Load ZXing
+      if (!window.ZXingBrowser) {
+        try {
+          await loadScanScript('https://unpkg.com/@zxing/browser@0.1.4/umd/index.min.js');
+        } catch(err) {
+          // fallback to older zxing
+          try {
+            await loadScanScript('https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js');
+          } catch(e2) {
+            showToast('Erreur chargement scanner');
+            barcodeInput.value = '';
+            return;
+          }
+        }
+      }
+
+      try {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload = async function() {
+          try {
+            // Try ZXingBrowser first
+            if (window.ZXingBrowser) {
+              const reader = new ZXingBrowser.BrowserMultiFormatReader();
+              const result = await reader.decodeFromImageUrl(url);
+              URL.revokeObjectURL(url);
+              if (result) {
+                document.getElementById('f-ref').value = result.getText();
+                switchTabById('add');
+                showToast('✓ Code scanné : ' + result.getText());
+              }
+            } else if (window.ZXing) {
+              // Fallback ZXing library
+              const hints = new Map();
+              hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+              const reader = new ZXing.MultiFormatReader();
+              reader.setHints(hints);
+              const canvas = document.createElement('canvas');
+              canvas.width = img.width;
+              canvas.height = img.height;
+              const ctx = canvas.getContext('2d');
+              ctx.drawImage(img, 0, 0);
+              const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+              const src = new ZXing.RGBLuminanceSource(imageData.data, canvas.width, canvas.height);
+              const bmp = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(src));
+              const result = reader.decode(bmp);
+              URL.revokeObjectURL(url);
+              if (result) {
+                document.getElementById('f-ref').value = result.getText();
+                switchTabById('add');
+                showToast('✓ Code scanné : ' + result.getText());
+              }
+            }
+          } catch(decodeErr) {
+            URL.revokeObjectURL(url);
+            showToast('Code non détecté - réessayez en vous rapprochant');
+          }
+          barcodeInput.value = '';
+        };
+        img.onerror = function() {
+          URL.revokeObjectURL(url);
+          showToast('Erreur lecture image');
+          barcodeInput.value = '';
+        };
+        img.src = url;
+      } catch(err) {
+        showToast('Erreur : ' + err.message);
+        barcodeInput.value = '';
+      }
+    });
+  }
+});
+
+function loadScanScript(src) {
+  return new Promise((resolve, reject) => {
+    if (document.querySelector('script[src="' + src + '"]')) { resolve(); return; }
+    var s = document.createElement('script');
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
 document.addEventListener('keydown', e=>{if(e.key==='Escape'){closeModalDirect();closeScanner();}});
 
 // ─── BARCODE SCANNER (QuaggaJS) ──────────────────────────────────────────────
@@ -1155,6 +1427,108 @@ function closeScanner() {
   const video = document.getElementById('scanner-video');
   if (video) video.style.display = 'block';
   document.getElementById('scanner-result').textContent = '';
+}
+
+
+// ─── BARCODE SCANNER ─────────────────────────────────────────────────────────
+// Utilise l'appareil photo natif iOS/Android + librairie de décodage
+document.addEventListener('DOMContentLoaded', function() {
+  var scanBtn = document.getElementById('btn-scan');
+  var barcodeInput = document.getElementById('barcode-input');
+
+  if (scanBtn) {
+    scanBtn.addEventListener('click', function(e) { e.preventDefault(); barcodeInput.click(); });
+    scanBtn.addEventListener('touchend', function(e) { e.preventDefault(); barcodeInput.click(); });
+  }
+
+  if (barcodeInput) {
+    barcodeInput.addEventListener('change', async function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      showToast('🔍 Lecture du code...');
+
+      // Load ZXing
+      if (!window.ZXingBrowser) {
+        try {
+          await loadScanScript('https://unpkg.com/@zxing/browser@0.1.4/umd/index.min.js');
+        } catch(err) {
+          // fallback to older zxing
+          try {
+            await loadScanScript('https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js');
+          } catch(e2) {
+            showToast('Erreur chargement scanner');
+            barcodeInput.value = '';
+            return;
+          }
+        }
+      }
+
+      try {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload = async function() {
+          try {
+            // Try ZXingBrowser first
+            if (window.ZXingBrowser) {
+              const reader = new ZXingBrowser.BrowserMultiFormatReader();
+              const result = await reader.decodeFromImageUrl(url);
+              URL.revokeObjectURL(url);
+              if (result) {
+                document.getElementById('f-ref').value = result.getText();
+                switchTabById('add');
+                showToast('✓ Code scanné : ' + result.getText());
+              }
+            } else if (window.ZXing) {
+              // Fallback ZXing library
+              const hints = new Map();
+              hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+              const reader = new ZXing.MultiFormatReader();
+              reader.setHints(hints);
+              const canvas = document.createElement('canvas');
+              canvas.width = img.width;
+              canvas.height = img.height;
+              const ctx = canvas.getContext('2d');
+              ctx.drawImage(img, 0, 0);
+              const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+              const src = new ZXing.RGBLuminanceSource(imageData.data, canvas.width, canvas.height);
+              const bmp = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(src));
+              const result = reader.decode(bmp);
+              URL.revokeObjectURL(url);
+              if (result) {
+                document.getElementById('f-ref').value = result.getText();
+                switchTabById('add');
+                showToast('✓ Code scanné : ' + result.getText());
+              }
+            }
+          } catch(decodeErr) {
+            URL.revokeObjectURL(url);
+            showToast('Code non détecté - réessayez en vous rapprochant');
+          }
+          barcodeInput.value = '';
+        };
+        img.onerror = function() {
+          URL.revokeObjectURL(url);
+          showToast('Erreur lecture image');
+          barcodeInput.value = '';
+        };
+        img.src = url;
+      } catch(err) {
+        showToast('Erreur : ' + err.message);
+        barcodeInput.value = '';
+      }
+    });
+  }
+});
+
+function loadScanScript(src) {
+  return new Promise((resolve, reject) => {
+    if (document.querySelector('script[src="' + src + '"]')) { resolve(); return; }
+    var s = document.createElement('script');
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
 }
 
 document.addEventListener('keydown', e=>{if(e.key==='Escape'){closeModalDirect();closeScanner();}});

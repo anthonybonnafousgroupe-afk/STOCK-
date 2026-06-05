@@ -235,7 +235,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
       <div class="status-dot" id="status-dot"></div>
       <h1>📦 Stock Partagé</h1>
     </div>
-    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span style="font-size:9px;opacity:0.4;color:#fff">v1.6</span><span class="sync-label" id="sync-label">—</span></div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span style="font-size:9px;opacity:0.4;color:#fff">v1.7</span><span class="sync-label" id="sync-label">—</span></div>
   </div>
 
   <!-- STOCK TAB -->
@@ -885,10 +885,9 @@ function installPWA() {
 }
 
 
-// ─── BARCODE SCANNER ─────────────────────────────────────────────────────────
-var quaggaRunning = false;
-var scannerActive = false;
-var scannerStream = null;
+// ─── BARCODE SCANNER (html5-qrcode) ─────────────────────────────────────────
+var html5QrScanner = null;
+var scannerOpen = false;
 
 function isIOS() {
   return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
@@ -906,112 +905,91 @@ function loadScanScript(src) {
 document.addEventListener('DOMContentLoaded', function() {
   var scanBtn = document.getElementById('btn-scan');
   var closeBtn = document.getElementById('btn-close-scanner');
-
   if (scanBtn) {
     scanBtn.addEventListener('click', function(e) { e.preventDefault(); openScanner(); });
-    scanBtn.addEventListener('touchend', function(e) { e.preventDefault(); e.stopPropagation(); openScanner(); }, {passive: false});
+    scanBtn.addEventListener('touchend', function(e) { e.preventDefault(); e.stopPropagation(); openScanner(); }, {passive:false});
   }
   if (closeBtn) {
     closeBtn.addEventListener('click', function(e) { e.preventDefault(); closeScanner(); });
-    closeBtn.addEventListener('touchend', function(e) { e.preventDefault(); closeScanner(); }, {passive: false});
+    closeBtn.addEventListener('touchend', function(e) { e.preventDefault(); closeScanner(); }, {passive:false});
   }
 });
 
 async function openScanner() {
+  if (scannerOpen) return;
   var modal = document.getElementById('scanner-modal');
   var resultEl = document.getElementById('scanner-result');
   var iosNote = document.getElementById('scanner-ios-note');
-
   resultEl.textContent = '';
   iosNote.style.display = 'none';
+  modal.classList.add('open');
 
-  // iPhone Safari - pas de scan live possible
   if (isIOS()) {
-    modal.classList.add('open');
     document.getElementById('scanner-video-wrap').style.display = 'none';
-    document.querySelector('.scanner-line') && (document.querySelector('.scanner-line').style.display = 'none');
     iosNote.style.display = 'block';
-    resultEl.textContent = '';
     return;
   }
 
-  // Android / Chrome - scan live avec Quagga
-  modal.classList.add('open');
   resultEl.textContent = '⏳ Chargement...';
+  try {
+    await loadScanScript('https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js');
+  } catch(e) {
+    showToast('Erreur chargement scanner'); closeScanner(); return;
+  }
+  resultEl.textContent = 'Démarrage caméra...';
+
+  // Clear previous container
+  var wrap = document.getElementById('scanner-video-wrap');
+  wrap.innerHTML = '<div id="qr-reader"></div><div class="scanner-line"></div><div class="scanner-corner tl"></div><div class="scanner-corner tr"></div><div class="scanner-corner bl"></div><div class="scanner-corner br"></div>';
 
   try {
-    await loadScanScript('https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js');
-  } catch(e) {
-    showToast('Erreur chargement scanner');
-    closeScanner(); return;
-  }
+    html5QrScanner = new Html5Qrcode("qr-reader");
+    scannerOpen = true;
+    resultEl.textContent = '';
 
-  resultEl.textContent = '';
-  scannerActive = true;
-
-  var container = document.getElementById('scanner-video-wrap');
-
-  Quagga.init({
-    inputStream: {
-      type: 'LiveStream',
-      target: document.getElementById('scanner-video'),
-      constraints: {
-        facingMode: 'environment',
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
+    await html5QrScanner.start(
+      { facingMode: "environment" },
+      {
+        fps: 10,
+        qrbox: { width: 250, height: 150 },
+        aspectRatio: 1.7,
+        supportedScanTypes: [
+          Html5QrcodeScanType.SCAN_TYPE_CAMERA
+        ]
+      },
+      function(decodedText) {
+        // Success
+        resultEl.textContent = '✓ ' + decodedText;
+        if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+        setTimeout(function() {
+          document.getElementById('f-ref').value = decodedText;
+          closeScanner();
+          switchTabById('add');
+          showToast('Code scanné : ' + decodedText);
+        }, 500);
+      },
+      function(errorMsg) {
+        // scanning in progress - ignore
       }
-    },
-    locator: { patchSize: 'large', halfSample: false },
-    numOfWorkers: 0,
-    frequency: 8,
-    decoder: {
-      readers: [
-        'ean_reader','ean_8_reader','code_128_reader',
-        'code_39_reader','upc_reader','upc_e_reader'
-      ]
-    },
-    locate: true
-  }, function(err) {
-    if (err) {
-      resultEl.textContent = 'Erreur caméra';
-      console.error(err);
-      return;
-    }
-    Quagga.start();
-    quaggaRunning = true;
-  });
-
-  var counts = {};
-  Quagga.onDetected(function(result) {
-    if (!scannerActive) return;
-    var code = result.codeResult.code;
-    if (!code || code.length < 3) return;
-    counts[code] = (counts[code] || 0) + 1;
-    resultEl.textContent = '🔍 ' + code;
-    if (counts[code] >= 3) {
-      scannerActive = false;
-      resultEl.textContent = '✓ ' + code;
-      if (navigator.vibrate) navigator.vibrate([100,50,100]);
-      setTimeout(function() {
-        document.getElementById('f-ref').value = code;
-        closeScanner();
-        switchTabById('add');
-        showToast('Code scanné : ' + code);
-      }, 400);
-    }
-  });
+    );
+  } catch(err) {
+    resultEl.textContent = 'Erreur : ' + err;
+    console.error(err);
+  }
 }
 
-function closeScanner() {
-  scannerActive = false;
+async function closeScanner() {
+  scannerOpen = false;
   var modal = document.getElementById('scanner-modal');
   modal.classList.remove('open');
-  document.getElementById('scanner-video-wrap').style.display = '';
   document.getElementById('scanner-result').textContent = '';
   document.getElementById('scanner-ios-note').style.display = 'none';
-  if (quaggaRunning) {
-    try { Quagga.stop(); } catch(e) {}
-    quaggaRunning = false;
+  if (html5QrScanner) {
+    try {
+      await html5QrScanner.stop();
+      html5QrScanner.clear();
+    } catch(e) {}
+    html5QrScanner = null;
   }
 }
 

@@ -182,9 +182,24 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 
 
 /* SCANNER */
-.scan-btn { position: absolute; right: 0; top: 0; height: 44px; width: 44px; border: none; background: none; font-size: 22px; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--muted); touch-action: manipulation; }
+.scan-btn { position: absolute; right: 0; top: 0; height: 44px; width: 44px; border: none; background: none; font-size: 22px; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--muted); touch-action: manipulation; -webkit-appearance: none; }
 .field-with-scan { position: relative; }
 .field-with-scan input { padding-right: 44px; }
+.scanner-modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.9); z-index: 300; flex-direction: column; align-items: center; justify-content: center; padding: 1rem; }
+.scanner-modal-bg.open { display: flex; }
+.scanner-video-wrap { position: relative; width: min(340px,90vw); border-radius: 16px; overflow: hidden; background: #000; }
+.scanner-video-wrap video { width: 100%; display: block; max-height: 60vh; object-fit: cover; }
+.scanner-line { position: absolute; left: 5%; right: 5%; height: 2px; background: #5dca85; box-shadow: 0 0 8px #5dca85; animation: scan-anim 2s ease-in-out infinite; top: 20%; pointer-events: none; }
+@keyframes scan-anim { 0%,100%{top:20%} 50%{top:75%} }
+.scanner-corner { position: absolute; width: 22px; height: 22px; pointer-events: none; }
+.scanner-corner.tl{top:8%;left:8%;border-top:3px solid #5dca85;border-left:3px solid #5dca85;}
+.scanner-corner.tr{top:8%;right:8%;border-top:3px solid #5dca85;border-right:3px solid #5dca85;}
+.scanner-corner.bl{bottom:8%;left:8%;border-bottom:3px solid #5dca85;border-left:3px solid #5dca85;}
+.scanner-corner.br{bottom:8%;right:8%;border-bottom:3px solid #5dca85;border-right:3px solid #5dca85;}
+.scanner-label { color: #fff; font-size: 14px; margin-top: 1rem; text-align: center; opacity: .8; }
+.scanner-result { color: #5dca85; font-size: 15px; font-weight: 500; margin-top: .5rem; text-align: center; min-height: 22px; }
+.scanner-ios-note { color: #ffcc00; font-size: 12px; margin-top: .5rem; text-align: center; display: none; }
+.btn-close-scanner { margin-top: 1rem; height: 44px; padding: 0 28px; border-radius: 22px; border: 1px solid rgba(255,255,255,.3); background: rgba(255,255,255,.1); color: #fff; font-size: 15px; cursor: pointer; font-family: inherit; touch-action: manipulation; }
 
 /* TOAST */
 .toast { position: fixed; bottom: calc(var(--safe-bottom) + 80px); left: 50%; transform: translateX(-50%) translateY(20px); background: #1a1a18; color: #fff; padding: 10px 20px; border-radius: 20px; font-size: 13px; opacity: 0; transition: all .3s; z-index: 300; white-space: nowrap; pointer-events: none; }
@@ -220,7 +235,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
       <div class="status-dot" id="status-dot"></div>
       <h1>📦 Stock Partagé</h1>
     </div>
-    <span class="sync-label" id="sync-label">—</span>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span style="font-size:9px;opacity:0.4;color:#fff">v1.6</span><span class="sync-label" id="sync-label">—</span></div>
   </div>
 
   <!-- STOCK TAB -->
@@ -247,11 +262,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
       <div class="field">
         <label>Référence *</label>
         <div class="field-with-scan">
-          <input id="f-ref" type="text" placeholder="ART-001 ou scanner 📷" />
+          <input id="f-ref" type="text" placeholder="ART-001" />
           <button class="scan-btn" id="btn-scan" title="Scanner un code-barres">📷</button>
         </div>
       </div>
-      <input type="file" id="barcode-input" accept="image/*" capture="environment" style="display:none" />
       <div class="field"><label>Désignation</label><input id="f-desc" type="text" placeholder="Nom du produit" /></div>
       <div class="field"><label>Lieu de stockage *</label><input id="f-lieu" type="text" placeholder="A1-E3 / Entrepôt B" /></div>
       <div class="field"><label>Quantité *</label><input id="f-stock" type="number" min="0" inputmode="numeric" placeholder="0" /></div>
@@ -318,6 +332,23 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
   </div>
 </div>
 
+
+
+<!-- SCANNER MODAL -->
+<div class="scanner-modal-bg" id="scanner-modal">
+  <div class="scanner-video-wrap" id="scanner-video-wrap">
+    <video id="scanner-video" autoplay playsinline muted></video>
+    <div class="scanner-line"></div>
+    <div class="scanner-corner tl"></div>
+    <div class="scanner-corner tr"></div>
+    <div class="scanner-corner bl"></div>
+    <div class="scanner-corner br"></div>
+  </div>
+  <div class="scanner-label">Pointez vers un code-barres</div>
+  <div class="scanner-result" id="scanner-result"></div>
+  <div class="scanner-ios-note" id="scanner-ios-note">⚠️ Safari iPhone : scan non supporté<br>Tapez la référence manuellement</div>
+  <button class="btn-close-scanner" id="btn-close-scanner">✕ Fermer</button>
+</div>
 
 <div class="toast" id="toast"></div>
 
@@ -855,105 +886,135 @@ function installPWA() {
 
 
 // ─── BARCODE SCANNER ─────────────────────────────────────────────────────────
-// Utilise l'appareil photo natif iOS/Android + librairie de décodage
-document.addEventListener('DOMContentLoaded', function() {
-  var scanBtn = document.getElementById('btn-scan');
-  var barcodeInput = document.getElementById('barcode-input');
+var quaggaRunning = false;
+var scannerActive = false;
+var scannerStream = null;
 
-  if (scanBtn) {
-    scanBtn.addEventListener('click', function(e) { e.preventDefault(); barcodeInput.click(); });
-    scanBtn.addEventListener('touchend', function(e) { e.preventDefault(); barcodeInput.click(); });
-  }
-
-  if (barcodeInput) {
-    barcodeInput.addEventListener('change', async function(e) {
-      const file = e.target.files[0];
-      if (!file) return;
-      showToast('🔍 Lecture du code...');
-
-      // Load ZXing
-      if (!window.ZXingBrowser) {
-        try {
-          await loadScanScript('https://unpkg.com/@zxing/browser@0.1.4/umd/index.min.js');
-        } catch(err) {
-          // fallback to older zxing
-          try {
-            await loadScanScript('https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js');
-          } catch(e2) {
-            showToast('Erreur chargement scanner');
-            barcodeInput.value = '';
-            return;
-          }
-        }
-      }
-
-      try {
-        const img = new Image();
-        const url = URL.createObjectURL(file);
-        img.onload = async function() {
-          try {
-            // Try ZXingBrowser first
-            if (window.ZXingBrowser) {
-              const reader = new ZXingBrowser.BrowserMultiFormatReader();
-              const result = await reader.decodeFromImageUrl(url);
-              URL.revokeObjectURL(url);
-              if (result) {
-                document.getElementById('f-ref').value = result.getText();
-                switchTabById('add');
-                showToast('✓ Code scanné : ' + result.getText());
-              }
-            } else if (window.ZXing) {
-              // Fallback ZXing library
-              const hints = new Map();
-              hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-              const reader = new ZXing.MultiFormatReader();
-              reader.setHints(hints);
-              const canvas = document.createElement('canvas');
-              canvas.width = img.width;
-              canvas.height = img.height;
-              const ctx = canvas.getContext('2d');
-              ctx.drawImage(img, 0, 0);
-              const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-              const src = new ZXing.RGBLuminanceSource(imageData.data, canvas.width, canvas.height);
-              const bmp = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(src));
-              const result = reader.decode(bmp);
-              URL.revokeObjectURL(url);
-              if (result) {
-                document.getElementById('f-ref').value = result.getText();
-                switchTabById('add');
-                showToast('✓ Code scanné : ' + result.getText());
-              }
-            }
-          } catch(decodeErr) {
-            URL.revokeObjectURL(url);
-            showToast('Code non détecté - réessayez en vous rapprochant');
-          }
-          barcodeInput.value = '';
-        };
-        img.onerror = function() {
-          URL.revokeObjectURL(url);
-          showToast('Erreur lecture image');
-          barcodeInput.value = '';
-        };
-        img.src = url;
-      } catch(err) {
-        showToast('Erreur : ' + err.message);
-        barcodeInput.value = '';
-      }
-    });
-  }
-});
+function isIOS() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+}
 
 function loadScanScript(src) {
-  return new Promise((resolve, reject) => {
+  return new Promise(function(resolve, reject) {
     if (document.querySelector('script[src="' + src + '"]')) { resolve(); return; }
     var s = document.createElement('script');
-    s.src = src;
-    s.onload = resolve;
-    s.onerror = reject;
+    s.src = src; s.onload = resolve; s.onerror = reject;
     document.head.appendChild(s);
   });
 }
+
+document.addEventListener('DOMContentLoaded', function() {
+  var scanBtn = document.getElementById('btn-scan');
+  var closeBtn = document.getElementById('btn-close-scanner');
+
+  if (scanBtn) {
+    scanBtn.addEventListener('click', function(e) { e.preventDefault(); openScanner(); });
+    scanBtn.addEventListener('touchend', function(e) { e.preventDefault(); e.stopPropagation(); openScanner(); }, {passive: false});
+  }
+  if (closeBtn) {
+    closeBtn.addEventListener('click', function(e) { e.preventDefault(); closeScanner(); });
+    closeBtn.addEventListener('touchend', function(e) { e.preventDefault(); closeScanner(); }, {passive: false});
+  }
+});
+
+async function openScanner() {
+  var modal = document.getElementById('scanner-modal');
+  var resultEl = document.getElementById('scanner-result');
+  var iosNote = document.getElementById('scanner-ios-note');
+
+  resultEl.textContent = '';
+  iosNote.style.display = 'none';
+
+  // iPhone Safari - pas de scan live possible
+  if (isIOS()) {
+    modal.classList.add('open');
+    document.getElementById('scanner-video-wrap').style.display = 'none';
+    document.querySelector('.scanner-line') && (document.querySelector('.scanner-line').style.display = 'none');
+    iosNote.style.display = 'block';
+    resultEl.textContent = '';
+    return;
+  }
+
+  // Android / Chrome - scan live avec Quagga
+  modal.classList.add('open');
+  resultEl.textContent = '⏳ Chargement...';
+
+  try {
+    await loadScanScript('https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js');
+  } catch(e) {
+    showToast('Erreur chargement scanner');
+    closeScanner(); return;
+  }
+
+  resultEl.textContent = '';
+  scannerActive = true;
+
+  var container = document.getElementById('scanner-video-wrap');
+
+  Quagga.init({
+    inputStream: {
+      type: 'LiveStream',
+      target: document.getElementById('scanner-video'),
+      constraints: {
+        facingMode: 'environment',
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      }
+    },
+    locator: { patchSize: 'large', halfSample: false },
+    numOfWorkers: 0,
+    frequency: 8,
+    decoder: {
+      readers: [
+        'ean_reader','ean_8_reader','code_128_reader',
+        'code_39_reader','upc_reader','upc_e_reader'
+      ]
+    },
+    locate: true
+  }, function(err) {
+    if (err) {
+      resultEl.textContent = 'Erreur caméra';
+      console.error(err);
+      return;
+    }
+    Quagga.start();
+    quaggaRunning = true;
+  });
+
+  var counts = {};
+  Quagga.onDetected(function(result) {
+    if (!scannerActive) return;
+    var code = result.codeResult.code;
+    if (!code || code.length < 3) return;
+    counts[code] = (counts[code] || 0) + 1;
+    resultEl.textContent = '🔍 ' + code;
+    if (counts[code] >= 3) {
+      scannerActive = false;
+      resultEl.textContent = '✓ ' + code;
+      if (navigator.vibrate) navigator.vibrate([100,50,100]);
+      setTimeout(function() {
+        document.getElementById('f-ref').value = code;
+        closeScanner();
+        switchTabById('add');
+        showToast('Code scanné : ' + code);
+      }, 400);
+    }
+  });
+}
+
+function closeScanner() {
+  scannerActive = false;
+  var modal = document.getElementById('scanner-modal');
+  modal.classList.remove('open');
+  document.getElementById('scanner-video-wrap').style.display = '';
+  document.getElementById('scanner-result').textContent = '';
+  document.getElementById('scanner-ios-note').style.display = 'none';
+  if (quaggaRunning) {
+    try { Quagga.stop(); } catch(e) {}
+    quaggaRunning = false;
+  }
+}
+
 
 document.addEventListener('keydown', e=>{if(e.key==='Escape'){closeModalDirect();closeScanner();}});
 
@@ -1058,6 +1119,137 @@ function loadScanScript(src) {
     document.head.appendChild(s);
   });
 }
+
+// ─── BARCODE SCANNER ─────────────────────────────────────────────────────────
+var quaggaRunning = false;
+var scannerActive = false;
+var scannerStream = null;
+
+function isIOS() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+}
+
+function loadScanScript(src) {
+  return new Promise(function(resolve, reject) {
+    if (document.querySelector('script[src="' + src + '"]')) { resolve(); return; }
+    var s = document.createElement('script');
+    s.src = src; s.onload = resolve; s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  var scanBtn = document.getElementById('btn-scan');
+  var closeBtn = document.getElementById('btn-close-scanner');
+
+  if (scanBtn) {
+    scanBtn.addEventListener('click', function(e) { e.preventDefault(); openScanner(); });
+    scanBtn.addEventListener('touchend', function(e) { e.preventDefault(); e.stopPropagation(); openScanner(); }, {passive: false});
+  }
+  if (closeBtn) {
+    closeBtn.addEventListener('click', function(e) { e.preventDefault(); closeScanner(); });
+    closeBtn.addEventListener('touchend', function(e) { e.preventDefault(); closeScanner(); }, {passive: false});
+  }
+});
+
+async function openScanner() {
+  var modal = document.getElementById('scanner-modal');
+  var resultEl = document.getElementById('scanner-result');
+  var iosNote = document.getElementById('scanner-ios-note');
+
+  resultEl.textContent = '';
+  iosNote.style.display = 'none';
+
+  // iPhone Safari - pas de scan live possible
+  if (isIOS()) {
+    modal.classList.add('open');
+    document.getElementById('scanner-video-wrap').style.display = 'none';
+    document.querySelector('.scanner-line') && (document.querySelector('.scanner-line').style.display = 'none');
+    iosNote.style.display = 'block';
+    resultEl.textContent = '';
+    return;
+  }
+
+  // Android / Chrome - scan live avec Quagga
+  modal.classList.add('open');
+  resultEl.textContent = '⏳ Chargement...';
+
+  try {
+    await loadScanScript('https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js');
+  } catch(e) {
+    showToast('Erreur chargement scanner');
+    closeScanner(); return;
+  }
+
+  resultEl.textContent = '';
+  scannerActive = true;
+
+  var container = document.getElementById('scanner-video-wrap');
+
+  Quagga.init({
+    inputStream: {
+      type: 'LiveStream',
+      target: document.getElementById('scanner-video'),
+      constraints: {
+        facingMode: 'environment',
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      }
+    },
+    locator: { patchSize: 'large', halfSample: false },
+    numOfWorkers: 0,
+    frequency: 8,
+    decoder: {
+      readers: [
+        'ean_reader','ean_8_reader','code_128_reader',
+        'code_39_reader','upc_reader','upc_e_reader'
+      ]
+    },
+    locate: true
+  }, function(err) {
+    if (err) {
+      resultEl.textContent = 'Erreur caméra';
+      console.error(err);
+      return;
+    }
+    Quagga.start();
+    quaggaRunning = true;
+  });
+
+  var counts = {};
+  Quagga.onDetected(function(result) {
+    if (!scannerActive) return;
+    var code = result.codeResult.code;
+    if (!code || code.length < 3) return;
+    counts[code] = (counts[code] || 0) + 1;
+    resultEl.textContent = '🔍 ' + code;
+    if (counts[code] >= 3) {
+      scannerActive = false;
+      resultEl.textContent = '✓ ' + code;
+      if (navigator.vibrate) navigator.vibrate([100,50,100]);
+      setTimeout(function() {
+        document.getElementById('f-ref').value = code;
+        closeScanner();
+        switchTabById('add');
+        showToast('Code scanné : ' + code);
+      }, 400);
+    }
+  });
+}
+
+function closeScanner() {
+  scannerActive = false;
+  var modal = document.getElementById('scanner-modal');
+  modal.classList.remove('open');
+  document.getElementById('scanner-video-wrap').style.display = '';
+  document.getElementById('scanner-result').textContent = '';
+  document.getElementById('scanner-ios-note').style.display = 'none';
+  if (quaggaRunning) {
+    try { Quagga.stop(); } catch(e) {}
+    quaggaRunning = false;
+  }
+}
+
 
 document.addEventListener('keydown', e=>{if(e.key==='Escape'){closeModalDirect();closeScanner();}});
 
@@ -1322,6 +1514,137 @@ function loadScanScript(src) {
   });
 }
 
+// ─── BARCODE SCANNER ─────────────────────────────────────────────────────────
+var quaggaRunning = false;
+var scannerActive = false;
+var scannerStream = null;
+
+function isIOS() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+}
+
+function loadScanScript(src) {
+  return new Promise(function(resolve, reject) {
+    if (document.querySelector('script[src="' + src + '"]')) { resolve(); return; }
+    var s = document.createElement('script');
+    s.src = src; s.onload = resolve; s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  var scanBtn = document.getElementById('btn-scan');
+  var closeBtn = document.getElementById('btn-close-scanner');
+
+  if (scanBtn) {
+    scanBtn.addEventListener('click', function(e) { e.preventDefault(); openScanner(); });
+    scanBtn.addEventListener('touchend', function(e) { e.preventDefault(); e.stopPropagation(); openScanner(); }, {passive: false});
+  }
+  if (closeBtn) {
+    closeBtn.addEventListener('click', function(e) { e.preventDefault(); closeScanner(); });
+    closeBtn.addEventListener('touchend', function(e) { e.preventDefault(); closeScanner(); }, {passive: false});
+  }
+});
+
+async function openScanner() {
+  var modal = document.getElementById('scanner-modal');
+  var resultEl = document.getElementById('scanner-result');
+  var iosNote = document.getElementById('scanner-ios-note');
+
+  resultEl.textContent = '';
+  iosNote.style.display = 'none';
+
+  // iPhone Safari - pas de scan live possible
+  if (isIOS()) {
+    modal.classList.add('open');
+    document.getElementById('scanner-video-wrap').style.display = 'none';
+    document.querySelector('.scanner-line') && (document.querySelector('.scanner-line').style.display = 'none');
+    iosNote.style.display = 'block';
+    resultEl.textContent = '';
+    return;
+  }
+
+  // Android / Chrome - scan live avec Quagga
+  modal.classList.add('open');
+  resultEl.textContent = '⏳ Chargement...';
+
+  try {
+    await loadScanScript('https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js');
+  } catch(e) {
+    showToast('Erreur chargement scanner');
+    closeScanner(); return;
+  }
+
+  resultEl.textContent = '';
+  scannerActive = true;
+
+  var container = document.getElementById('scanner-video-wrap');
+
+  Quagga.init({
+    inputStream: {
+      type: 'LiveStream',
+      target: document.getElementById('scanner-video'),
+      constraints: {
+        facingMode: 'environment',
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      }
+    },
+    locator: { patchSize: 'large', halfSample: false },
+    numOfWorkers: 0,
+    frequency: 8,
+    decoder: {
+      readers: [
+        'ean_reader','ean_8_reader','code_128_reader',
+        'code_39_reader','upc_reader','upc_e_reader'
+      ]
+    },
+    locate: true
+  }, function(err) {
+    if (err) {
+      resultEl.textContent = 'Erreur caméra';
+      console.error(err);
+      return;
+    }
+    Quagga.start();
+    quaggaRunning = true;
+  });
+
+  var counts = {};
+  Quagga.onDetected(function(result) {
+    if (!scannerActive) return;
+    var code = result.codeResult.code;
+    if (!code || code.length < 3) return;
+    counts[code] = (counts[code] || 0) + 1;
+    resultEl.textContent = '🔍 ' + code;
+    if (counts[code] >= 3) {
+      scannerActive = false;
+      resultEl.textContent = '✓ ' + code;
+      if (navigator.vibrate) navigator.vibrate([100,50,100]);
+      setTimeout(function() {
+        document.getElementById('f-ref').value = code;
+        closeScanner();
+        switchTabById('add');
+        showToast('Code scanné : ' + code);
+      }, 400);
+    }
+  });
+}
+
+function closeScanner() {
+  scannerActive = false;
+  var modal = document.getElementById('scanner-modal');
+  modal.classList.remove('open');
+  document.getElementById('scanner-video-wrap').style.display = '';
+  document.getElementById('scanner-result').textContent = '';
+  document.getElementById('scanner-ios-note').style.display = 'none';
+  if (quaggaRunning) {
+    try { Quagga.stop(); } catch(e) {}
+    quaggaRunning = false;
+  }
+}
+
+
 document.addEventListener('keydown', e=>{if(e.key==='Escape'){closeModalDirect();closeScanner();}});
 
 // ─── BARCODE SCANNER (QuaggaJS) ──────────────────────────────────────────────
@@ -1531,10 +1854,140 @@ function loadScanScript(src) {
   });
 }
 
+// ─── BARCODE SCANNER ─────────────────────────────────────────────────────────
+var quaggaRunning = false;
+var scannerActive = false;
+var scannerStream = null;
+
+function isIOS() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+}
+
+function loadScanScript(src) {
+  return new Promise(function(resolve, reject) {
+    if (document.querySelector('script[src="' + src + '"]')) { resolve(); return; }
+    var s = document.createElement('script');
+    s.src = src; s.onload = resolve; s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  var scanBtn = document.getElementById('btn-scan');
+  var closeBtn = document.getElementById('btn-close-scanner');
+
+  if (scanBtn) {
+    scanBtn.addEventListener('click', function(e) { e.preventDefault(); openScanner(); });
+    scanBtn.addEventListener('touchend', function(e) { e.preventDefault(); e.stopPropagation(); openScanner(); }, {passive: false});
+  }
+  if (closeBtn) {
+    closeBtn.addEventListener('click', function(e) { e.preventDefault(); closeScanner(); });
+    closeBtn.addEventListener('touchend', function(e) { e.preventDefault(); closeScanner(); }, {passive: false});
+  }
+});
+
+async function openScanner() {
+  var modal = document.getElementById('scanner-modal');
+  var resultEl = document.getElementById('scanner-result');
+  var iosNote = document.getElementById('scanner-ios-note');
+
+  resultEl.textContent = '';
+  iosNote.style.display = 'none';
+
+  // iPhone Safari - pas de scan live possible
+  if (isIOS()) {
+    modal.classList.add('open');
+    document.getElementById('scanner-video-wrap').style.display = 'none';
+    document.querySelector('.scanner-line') && (document.querySelector('.scanner-line').style.display = 'none');
+    iosNote.style.display = 'block';
+    resultEl.textContent = '';
+    return;
+  }
+
+  // Android / Chrome - scan live avec Quagga
+  modal.classList.add('open');
+  resultEl.textContent = '⏳ Chargement...';
+
+  try {
+    await loadScanScript('https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js');
+  } catch(e) {
+    showToast('Erreur chargement scanner');
+    closeScanner(); return;
+  }
+
+  resultEl.textContent = '';
+  scannerActive = true;
+
+  var container = document.getElementById('scanner-video-wrap');
+
+  Quagga.init({
+    inputStream: {
+      type: 'LiveStream',
+      target: document.getElementById('scanner-video'),
+      constraints: {
+        facingMode: 'environment',
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      }
+    },
+    locator: { patchSize: 'large', halfSample: false },
+    numOfWorkers: 0,
+    frequency: 8,
+    decoder: {
+      readers: [
+        'ean_reader','ean_8_reader','code_128_reader',
+        'code_39_reader','upc_reader','upc_e_reader'
+      ]
+    },
+    locate: true
+  }, function(err) {
+    if (err) {
+      resultEl.textContent = 'Erreur caméra';
+      console.error(err);
+      return;
+    }
+    Quagga.start();
+    quaggaRunning = true;
+  });
+
+  var counts = {};
+  Quagga.onDetected(function(result) {
+    if (!scannerActive) return;
+    var code = result.codeResult.code;
+    if (!code || code.length < 3) return;
+    counts[code] = (counts[code] || 0) + 1;
+    resultEl.textContent = '🔍 ' + code;
+    if (counts[code] >= 3) {
+      scannerActive = false;
+      resultEl.textContent = '✓ ' + code;
+      if (navigator.vibrate) navigator.vibrate([100,50,100]);
+      setTimeout(function() {
+        document.getElementById('f-ref').value = code;
+        closeScanner();
+        switchTabById('add');
+        showToast('Code scanné : ' + code);
+      }, 400);
+    }
+  });
+}
+
+function closeScanner() {
+  scannerActive = false;
+  var modal = document.getElementById('scanner-modal');
+  modal.classList.remove('open');
+  document.getElementById('scanner-video-wrap').style.display = '';
+  document.getElementById('scanner-result').textContent = '';
+  document.getElementById('scanner-ios-note').style.display = 'none';
+  if (quaggaRunning) {
+    try { Quagga.stop(); } catch(e) {}
+    quaggaRunning = false;
+  }
+}
+
+
 document.addEventListener('keydown', e=>{if(e.key==='Escape'){closeModalDirect();closeScanner();}});
 
 // ─── BARCODE SCANNER (ZXing - compatible Safari iPhone) ──────────────────────
-let scannerStream = null;
 let scannerAnimFrame = null;
 let zxingReader = null;
 
